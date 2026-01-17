@@ -77,6 +77,12 @@ cd streamlit_app
 streamlit run app.py
 ```
 
+Or from the project root:
+
+```bash
+streamlit run main.py
+```
+
 The app will start on **http://localhost:8501**
 
 **Login:**
@@ -191,7 +197,7 @@ conda env create -f environment.yaml --force
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `conda: command not found`       | Ensure conda is installed and PATH is updated. Run `conda init` and restart terminal.                               |
 | `No module named 'streamlit'`    | Activate environment: `conda activate takeawaybill`                                                                 |
-| Port 8501 already in use         | `streamlit run app.py --server.port 8502`                                                                           |
+| Port 8501 already in use         | `streamlit run main.py --server.port 8502`                                                                          |
 | Token refresh fails              | Verify `TAKEAWAY_REFRESH_TOKEN` in `.env` is valid                                                                  |
 | Import errors (requests, pandas) | Delete and recreate environment: `conda env remove --name takeawaybill` then `conda env create -f environment.yaml` |
 | File not found: `.env`           | Run `cp .env.example .env`                                                                                          |

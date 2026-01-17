@@ -236,9 +236,12 @@ def fetch_orders_by_date(
                 "Paid online": "paidOnline",
             }
         )
-
         billsDf["paidOnline"] = billsDf["paidOnline"].astype(int)
-        billsDf = billsDf[["createdAt", "orderCode", "postcode", "price", "paidOnline"]]
+        billsDf["paidOnline"] = billsDf["paidOnline"].map({0: "Cash", 1: "Online"})
+        billsDf = billsDf.rename(columns={"paidOnline": "Payment type"})
+        billsDf = billsDf[
+            ["createdAt", "orderCode", "postcode", "price", "Payment type"]
+        ]
         billsDf = billsDf.sort_values(by=sortColumn, ascending=(sortDirection == "asc"))
 
         print(f"Retrieved {len(billsDf)} orders for {date}")

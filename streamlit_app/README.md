@@ -18,8 +18,7 @@ cp .env.example .env
 # Edit .env with TAKEAWAY_REFRESH_TOKEN
 
 # Run the app
-cd streamlit_app
-streamlit run app.py
+streamlit run main.py
 ```
 
 The app will be available at `http://localhost:8501`

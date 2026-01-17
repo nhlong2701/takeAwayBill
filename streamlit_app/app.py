@@ -14,7 +14,7 @@ from typing import Optional
 import jwt
 
 # Import backend functions
-from backend import (
+from streamlit_app.backend import (
     TAKEAWAY_REFRESH_TOKEN,
     fetch_orders_by_date,
     fetch_live_orders,
@@ -175,7 +175,10 @@ def orders_page():
 
     with col1:
         selected_date = st.date_input(
-            "Select Date", value=datetime.now().date(), key="orders_date"
+            "Select Date",
+            value=datetime.now().date(),
+            key="orders_date",
+            format="DD-MM-YYYY",
         )
 
     with col2:
@@ -213,22 +216,29 @@ def orders_page():
             df = pd.DataFrame(orders)
 
             # Display metrics
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3 = st.columns(3)
+
+            total_orders = len(orders)
+            online_paid = len([o for o in orders if o.get("paidOnline") == 1])
+            online_revenue = sum(
+                [o.get("price", 0) for o in orders if o.get("paidOnline") == 1]
+            )
+            cash_paid = len([o for o in orders if o.get("paidOnline") == 0])
+            cash_revenue = sum(
+                [o.get("price", 0) for o in orders if o.get("paidOnline") == 0]
+            )
 
             with col1:
-                st.metric("Total Orders", len(orders))
+                st.metric("Total Orders", total_orders)
+                st.metric("Total Revenue", f"€{online_revenue + cash_revenue:.2f}")
 
             with col2:
-                online_paid = len([o for o in orders if o.get("paidOnline") == 1])
-                st.metric("Paid Online", online_paid)
+                st.metric("Total Orders Paid Online", online_paid)
+                st.metric("Total Online Revenue", f"€{online_revenue:.2f}")
 
             with col3:
-                cash_payment = len([o for o in orders if o.get("paidOnline") == 0])
-                st.metric("Cash Payment", cash_payment)
-
-            with col4:
-                total_revenue = sum([o.get("price", 0) for o in orders])
-                st.metric("Total Revenue", f"€{total_revenue:.2f}")
+                st.metric("Total Orders Paid Cash", cash_paid)
+                st.metric("Total Cash Revenue", f"€{cash_revenue:.2f}")
 
             # Display table
             st.subheader("Order Details")

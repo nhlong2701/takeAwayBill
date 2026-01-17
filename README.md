@@ -14,7 +14,7 @@ cp .env.example .env
 **Run the app:**
 ```bash
 conda activate takeawaybill
-cd streamlit_app && streamlit run app.py
+streamlit run main.py
 ```
 
 Access: http://localhost:8501
@@ -36,12 +36,15 @@ conda activate takeawaybill
 **Run Streamlit app:**
 ```bash
 cd streamlit_app && streamlit run app.py
+# Or from root directory:
+streamlit run main.py
 ```
 
 ## 📁 Project Structure
 
 ```
 takeAwayBill/
+├── main.py                          # Main entry point for Streamlit
 ├── streamlit_app/
 │   ├── app.py                       # Streamlit UI & token management
 │   ├── backend.py                   # API calls & data processing

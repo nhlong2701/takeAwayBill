@@ -21,7 +21,7 @@ setup:
 	conda env create -f environment.yaml
 
 frontend:
-	cd streamlit_app && streamlit run app.py
+	streamlit run main.py
 
 all:
 	make frontend

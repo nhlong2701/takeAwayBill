@@ -126,7 +126,7 @@ cp .env.example .env
 
 # Every session
 conda activate takeawaybill
-cd streamlit_app && streamlit run app.py
+streamlit run main.py
 ```
 
 **Access:** http://localhost:8501
@@ -153,7 +153,7 @@ streamlit run app.py
 
 **Debug Backend:** Test functions directly in Python:
 ```bash
-python -c "from backend import fetch_orders_by_date; orders = fetch_orders_by_date('2024-01-15'); print(orders)"
+python -c "from streamlit_app.backend import fetch_orders_by_date; orders = fetch_orders_by_date('2024-01-15'); print(orders)"
 ```
 
 **Add Debugging:** Use `print()` statements or Python debugger:
@@ -248,6 +248,7 @@ results = [t.join() for t in threads]
 
 | Purpose | File | Status |
 |---------|------|--------|
+| Main entry point | `main.py` | Active |
 | Streamlit UI | `streamlit_app/app.py` | Active |
 | Backend APIs | `streamlit_app/backend.py` | Active |
 | Environment | `environment.yaml` | Active |
@@ -495,8 +496,8 @@ from dotenv import load_dotenv
 ## Deployment Notes
 
 ### Local Development (Conda)
-- **Default:** `streamlit run app.py`
-- **Custom port:** `streamlit run app.py --server.port 8502`
+- **Default:** `streamlit run main.py`
+- **Custom port:** `streamlit run main.py --server.port 8502`
 
 ### Streamlit Cloud (if deploying)
 1. Push code to GitHub
@@ -513,7 +514,7 @@ WORKDIR /app
 COPY . .
 RUN conda env create -f environment.yaml
 EXPOSE 8501
-CMD ["conda", "run", "-n", "takeawaybill", "streamlit", "run", "streamlit_app/app.py"]
+CMD ["conda", "run", "-n", "takeawaybill", "streamlit", "run", "main.py"]
 ```
 
 ---
@@ -543,7 +544,7 @@ When something breaks:
 
 5. **Check Streamlit:**
    - Is port 8501 free?
-   - Try different port: `streamlit run app.py --server.port 8502`
+   - Try different port: `streamlit run main.py --server.port 8502`
 
 6. **Check logs:**
    - Look at Streamlit console output
