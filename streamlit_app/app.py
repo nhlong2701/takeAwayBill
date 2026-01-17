@@ -31,9 +31,7 @@ st.set_page_config(
 
 # Verify refresh token is available
 if not TAKEAWAY_REFRESH_TOKEN:
-    st.error(
-        "❌ Missing Takeaway.com refresh token. Please set TAKEAWAY_REFRESH_TOKEN in .env file"
-    )
+    st.error("❌ Missing refresh token. Please set TAKEAWAY_REFRESH_TOKEN in .env file")
     st.stop()
 
 
