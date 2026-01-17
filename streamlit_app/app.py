@@ -216,19 +216,16 @@ def orders_page():
             # Display metrics
             col1, col2, col3 = st.columns(3)
 
-            total_orders = len(orders)
-            online_paid = len([o for o in orders if o.get("paidOnline") == 1])
-            online_revenue = sum(
-                [o.get("price", 0) for o in orders if o.get("paidOnline") == 1]
-            )
-            cash_paid = len([o for o in orders if o.get("paidOnline") == 0])
-            cash_revenue = sum(
-                [o.get("price", 0) for o in orders if o.get("paidOnline") == 0]
-            )
+            total_orders = len(df)
+            total_revenue = df["price"].sum()
+            online_paid = len(df[df["Payment type"] == "Online"].index)
+            online_revenue = df[df["Payment type"] == "Online"]["price"].sum()
+            cash_paid = len(df[df["Payment type"] == "Cash"].index)
+            cash_revenue = df[df["Payment type"] == "Cash"]["price"].sum()
 
             with col1:
                 st.metric("Total Orders", total_orders)
-                st.metric("Total Revenue", f"€{online_revenue + cash_revenue:.2f}")
+                st.metric("Total Revenue", f"€{total_revenue:.2f}")
 
             with col2:
                 st.metric("Total Orders Paid Online", online_paid)
