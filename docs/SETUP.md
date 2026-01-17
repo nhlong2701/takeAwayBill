@@ -236,7 +236,7 @@ python -c "from streamlit_app.backend import fetch_orders_by_date; orders = fetc
 
 - Read [QUICK_START.md](./QUICK_START.md) for a quick overview
 - Check [ENV_SETUP.md](./ENV_SETUP.md) for detailed OAuth2 workflow
-- See [README.md](./README.md) for features and architecture
+- See [README.md](../README.md) for features and architecture
 - Explore `streamlit_app/app.py` and `streamlit_app/backend.py` to understand the code
 
 ---

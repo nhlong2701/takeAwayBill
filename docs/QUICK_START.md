@@ -61,4 +61,4 @@ Open **http://localhost:8501** in your browser.
 
 - Read **[SETUP.md](./SETUP.md)** for detailed configuration
 - Check **[ENV_SETUP.md](./ENV_SETUP.md)** for OAuth2 workflow details
-- See **[README.md](./README.md)** for full feature overview
+- See **[README.md](../README.md)** for full feature overview
