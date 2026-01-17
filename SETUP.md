@@ -108,8 +108,7 @@ streamlit_app/
 - `main()`: App navigation and state management
 
 **`backend.py` (Pure Python Backend)**
-- `refresh_tokens()`: OAuth2 token refresh
-- `get_access_token()`: Get/refresh access token
+- `refresh_tokens()`: OAuth2 token refresh (returns access token)
 - `fetch_orders_by_date()`: Parallel order fetching from Takeaway.com API
 - `fetch_live_orders()`: Real-time order monitoring with retry logic
 - `ThreadWithReturnValue`: Helper for parallel API calls
@@ -119,15 +118,15 @@ streamlit_app/
 ```
 User Login (app.py)
     ↓
-Stores tokens in session state
+AuthManager stores user session tokens
+    ↓
+App startup → AuthManager.ensure_api_token()
+    ↓
+If needed → refresh_tokens() via OAuth2
     ↓
 API Request (from app.py)
     ↓
-backend.py checks token expiration
-    ↓
-If expired → refresh via OAuth2
-    ↓
-Call Takeaway.com API
+backend.py calls Takeaway.com API with cached token
     ↓
 Return data to Streamlit
     ↓

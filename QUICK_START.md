@@ -38,22 +38,23 @@ Open **http://localhost:8501** in your browser.
 
 ## Architecture
 
-**Frontend:** `streamlit_app/app.py` – Streamlit UI (pages: Login, Orders, Live Orders, Settings)
+**Frontend:** `streamlit_app/app.py` – Streamlit UI with token management (pages: Login, Orders, Live Orders, Settings)
 
-**Backend:** `streamlit_app/backend.py` – Pure Python module for API calls & token management (no Streamlit dependencies)
+**Backend:** `streamlit_app/backend.py` – Pure Python module for API calls & data processing (no Streamlit dependencies)
 
-**Token Management:** OAuth2 with automatic refresh using only the refresh token
+**Token Management:** OAuth2 with automatic refresh and session caching to minimize API calls
 
 ---
 
 ## Troubleshooting
 
-| Problem                    | Solution                                                          |
-| -------------------------- | ----------------------------------------------------------------- |
-| `conda: command not found` | Install Miniconda: https://docs.conda.io/en/latest/miniconda.html |
-| Import errors              | Ensure environment is activated: `conda activate takeawaybill`    |
-| Port 8501 in use           | `streamlit run app.py --server.port 8502`                         |
-| Token refresh fails        | Check `.env` file has valid `TAKEAWAY_REFRESH_TOKEN`              |
+| Problem                     | Solution                                                          |
+| --------------------------- | ----------------------------------------------------------------- |
+| `conda: command not found`  | Install Miniconda: https://docs.conda.io/en/latest/miniconda.html |
+| Import errors               | Ensure environment is activated: `conda activate takeawaybill`    |
+| Port 8501 in use            | `streamlit run app.py --server.port 8502`                         |
+| Token refresh fails         | Check `.env` file has valid `TAKEAWAY_REFRESH_TOKEN`              |
+| App keeps refreshing tokens | Clear browser cache or restart Streamlit session                  |
 
 ---
 

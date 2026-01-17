@@ -40,17 +40,25 @@ The project uses **clean separation of concerns**:
 ### Data Flow
 
 ```
-User Interaction (app.py)
-         ↓
-    AuthManager (session state)
-         ↓
-   backend.py API calls
-         ↓
-Takeaway.com OAuth2 & API
-         ↓
-   Return JSON data
-         ↓
-   Streamlit UI display
+User Login (app.py)
+    ↓
+AuthManager stores user session tokens
+    ↓
+App startup → AuthManager.ensure_api_token()
+    ↓
+If needed → refresh_tokens() via OAuth2
+    ↓
+API tokens cached in session state
+    ↓
+User Action (fetch orders)
+    ↓
+app.py passes cached token to backend functions
+    ↓
+backend.py API calls with provided token
+    ↓
+Return JSON data
+    ↓
+Streamlit UI display
 ```
 
 ### Key Modules
@@ -59,11 +67,15 @@ Takeaway.com OAuth2 & API
 
 ```python
 class AuthManager:
-    - get_tokens()           # Retrieve from session state
-    - save_tokens()          # Store in session state
-    - is_token_expired()     # Check JWT expiration
+    - get_tokens()           # Retrieve user session tokens
+    - save_tokens()          # Store user session tokens
+    - get_api_token()        # Get cached API access token
+    - save_api_token()       # Cache API access token
+    - is_api_token_expired() # Check JWT expiration with buffer
+    - refresh_api_token()    # Refresh API token via backend
+    - ensure_api_token()     # Ensure valid API token exists
     - login()                # Validate user
-    - logout()               # Clear tokens
+    - logout()               # Clear all tokens
 
 # Pages
 def login_page()             # Authentication UI
@@ -78,22 +90,21 @@ def main()                   # Navigation & app entry point
 ```python
 # Global state
 TAKEAWAY_REFRESH_TOKEN = os.getenv("TAKEAWAY_REFRESH_TOKEN")
-TAKEAWAY_ACCESS_TOKEN = None
 
 # Token management
-def refresh_tokens() -> bool
+def refresh_tokens() -> str
     # Exchanges refresh token for access token via OAuth2
-
-def get_access_token() -> str
-    # Returns current access token, refreshing if needed
+    # Returns the access token string
 
 # Order fetching
-def fetch_orders_by_date(date: str, sortColumn: str, sortDirection: str) -> List[dict]
+def fetch_orders_by_date(access_token: str, date: str, sortColumn: str, sortDirection: str) -> List[dict]
     # Parallel API calls to Takeaway.com Restaurant Portal
+    # Takes access_token as parameter
     # Returns historical orders for specified date
 
-def fetch_live_orders() -> List[dict]
+def fetch_live_orders(access_token: str) -> List[dict]
     # Calls Takeaway.com Live Orders API with retry logic
+    # Takes access_token as parameter
     # Returns currently active orders
 
 # Utility
@@ -158,13 +169,13 @@ import pdb; pdb.set_trace()  # Pauses execution
 
 **OAuth2 Flow:**
 1. User provides only `TAKEAWAY_REFRESH_TOKEN` in `.env`
-2. `get_access_token()` checks if current access token is expired
-3. If expired, calls `/partner-hub.justeattakeaway.com` to refresh
-4. Returns fresh access token
-5. API calls use this token in request headers
+2. `AuthManager.ensure_api_token()` checks if current access token is expired
+3. If expired, calls `refresh_tokens()` via OAuth2
+4. Returns fresh access token cached in session state
+5. API calls use cached token passed to backend functions
 
-**Frontend:** `app.py` stores tokens in `st.session_state` (temporary, per session)
-**Backend:** `backend.py` stores tokens in module-level variables (reusable across calls)
+**Frontend:** `app.py` stores API tokens in `st.session_state` (temporary, per session)
+**Backend:** `backend.py` receives tokens as parameters (no global state)
 
 ### API Response Format
 
@@ -209,7 +220,7 @@ import pdb; pdb.set_trace()  # Pauses execution
 
 ### Error Handling
 
-- **Expired token:** `get_access_token()` automatically refreshes
+- **Expired token:** `AuthManager.ensure_api_token()` automatically refreshes
 - **API failures:** `fetch_live_orders()` retries with exponential backoff
 - **Invalid credentials:** `login()` in `app.py` returns False (demo mode accepts any input)
 
@@ -283,9 +294,8 @@ df = pd.DataFrame(filtered_orders)
 
 Example: Fetch orders by postcode
 ```python
-def fetch_orders_by_postcode(postcode: str) -> List[dict]:
+def fetch_orders_by_postcode(access_token: str, postcode: str) -> List[dict]:
     """Fetch orders for a specific postcode."""
-    access_token = get_access_token()
     headers = {'Authorization': f'Bearer {access_token}'}
     response = requests.post(
         'https://api.takeaway.com/endpoint',
@@ -295,22 +305,19 @@ def fetch_orders_by_postcode(postcode: str) -> List[dict]:
     return response.json()
 
 # Then in app.py, call:
-orders = fetch_orders_by_postcode('10115')
+token = auth.get_api_token()
+orders = fetch_orders_by_postcode(token, '10115')
 ```
 
 ### Modifying Token Refresh Logic
 
-**Location:** `streamlit_app/backend.py` → `refresh_tokens()` and `get_access_token()`
+**Location:** `streamlit_app/app.py` → `AuthManager.refresh_api_token()` and `streamlit_app/backend.py` → `refresh_tokens()`
 
 Current flow:
-1. Check if access token expired (JWT decode)
-2. If expired, POST to Takeaway.com token endpoint
-3. Store new access token in module variable
-4. Return token
-
-**Do NOT modify:**
-- `.env` reading (handled by `python-dotenv`)
-- Response format (Takeaway.com API response is fixed)
+1. Check if access token expired (JWT decode in app.py)
+2. If expired, POST to Takeaway.com token endpoint (backend.py)
+3. Store new access token in session state (app.py)
+4. Return token for API calls
 
 ### Adding New Streamlit Pages
 
@@ -404,9 +411,9 @@ response = scraper.get(url, headers=headers)  # Bypasses Cloudflare
 ```bash
 conda activate takeawaybill
 python -c "
-from streamlit_app.backend import get_access_token
-token = get_access_token()
-print(f'Token: {token[:20]}...')
+from streamlit_app.backend import refresh_tokens
+token = refresh_tokens()
+print(f'Token: {token[:20]}...' if token else 'Refresh failed')
 "
 ```
 
@@ -416,7 +423,7 @@ print(f'Token: {token[:20]}...')
 python -c "
 from streamlit_app.backend import refresh_tokens
 success = refresh_tokens()
-print(f'Refresh: {success}')
+print(f'Refresh: {\"Success\" if success else \"Failed\"}')
 "
 ```
 
@@ -424,9 +431,13 @@ print(f'Refresh: {success}')
 
 ```bash
 python -c "
-from streamlit_app.backend import fetch_orders_by_date
-orders = fetch_orders_by_date('2024-01-15')
-print(f'Orders: {len(orders)}')
+from streamlit_app.backend import fetch_orders_by_date, refresh_tokens
+token = refresh_tokens()
+if token:
+    orders = fetch_orders_by_date(token, '2024-01-15')
+    print(f'Orders: {len(orders)}')
+else:
+    print('Token refresh failed')
 "
 ```
 
@@ -569,14 +580,12 @@ When something breaks:
 
 ```python
 # Good: Modular
-def fetch_orders_by_date(date):
-    access_token = get_access_token()  # Reusable
+def fetch_orders_by_date(access_token, date):
     headers = build_headers(access_token)  # Extracted
     return api_call(url, headers)  # Clean
 
 # Bad: Repetitive
-def fetch_orders_by_date(date):
-    # Token refresh logic repeated
+def fetch_orders_by_date(access_token, date):
     # Headers built inline
     # API call not reusable
 ```
@@ -590,8 +599,8 @@ def fetch_orders_by_date(date):
 | Task | File | Function |
 |------|------|----------|
 | Add UI page | `app.py` | `def my_page():` + add to `main()` |
-| Add API call | `backend.py` | `def fetch_my_data():` |
-| Fix token issue | `backend.py` | `refresh_tokens()`, `get_access_token()` |
+| Add API call | `backend.py` | `def fetch_my_data(access_token):` |
+| Fix token issue | `app.py` | `AuthManager.refresh_api_token()` |
 | Change UI layout | `app.py` | `st.column()`, `st.container()` |
 | Add dependency | `environment.yaml` | Add to `pip:` section |
 
@@ -607,8 +616,8 @@ Only ONE required variable:
 
 ### Important Classes
 
-- `AuthManager` (app.py) – Session token state
-- `ThreadWithReturnValue` (backend.py) – Parallel execution
+- `AuthManager` (app.py) – Session token state and API token management
+- `ThreadWithReturnValue` (backend.py) – Parallel execution for order fetching
 
 ---
 

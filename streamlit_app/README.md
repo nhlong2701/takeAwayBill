@@ -1,23 +1,24 @@
-# takeAwayBill - Streamlit Frontend
+# takeAwayBill - Streamlit Application
 
-A simple, lightweight frontend for takeAwayBill built with Streamlit.
+A lightweight Streamlit application for restaurant order management using Takeaway.com's API. Provides real-time order monitoring, historical order viewing, and automatic token management.
 
 ## Quick Start
 
 ### Prerequisites
-- Python 3.8+
-- Backend running on `http://localhost:5005`
+- Python 3.11 (via Conda environment)
+- Takeaway.com refresh token
 
 ### Installation & Running
 
 ```bash
-# Navigate to the streamlit app directory
-cd streamlit_app
-
-# Install dependencies
-pip install -r requirements.txt
+# From project root
+conda env create -f environment.yaml
+conda activate takeawaybill
+cp .env.example .env
+# Edit .env with TAKEAWAY_REFRESH_TOKEN
 
 # Run the app
+cd streamlit_app
 streamlit run app.py
 ```
 
@@ -25,67 +26,109 @@ The app will be available at `http://localhost:8501`
 
 ### Configuration
 
-Edit `.streamlit/secrets.toml` to change:
-- `backend_url` - Backend API endpoint (default: `http://localhost:5005`)
-- `testing_mode` - Enable testing features (default: false)
+**Environment Variables (.env):**
+```bash
+TAKEAWAY_REFRESH_TOKEN=your_refresh_token_here
+```
+
+**Timezone (optional):**
+Edit line 6 in `app.py`:
+```python
+os.environ['TZ'] = 'Europe/Berlin'  # Change as needed
+```
 
 ### Features
 
-- **Login/Logout** - Simple authentication
-- **Historical Orders** - View and filter past orders by date
+- **Login/Logout** - Simple authentication (demo mode)
+- **Historical Orders** - View and filter past orders by date with sorting
 - **Live Orders** - Real-time order monitoring with status tracking
 - **Analytics** - Quick metrics (total orders, paid online, revenue)
 - **Export** - Download order data as CSV
+- **Token Management** - Automatic OAuth2 refresh
 
 ### Pages
 
-1. **Orders** - Historical order management with sorting and filtering
-2. **Live Orders** - Real-time active orders grouped by status
-3. **Settings** - Token management and logout
+1. **Orders** - Historical order management with date selection, sorting, and filtering
+2. **Live Orders** - Real-time active orders with auto-refresh capability
+3. **Settings** - API token refresh and user logout
+
+## Architecture
+
+### Components
+
+**`app.py` (Main Application)**
+- `AuthManager` class: Manages both user session tokens and API access tokens
+- Page functions: `login_page()`, `orders_page()`, `live_orders_page()`, `settings_page()`
+- Token caching: API tokens stored in Streamlit session state to persist across reruns
+- Automatic token refresh: Checks expiration and refreshes on app startup
+
+**`backend.py` (API Module)**
+- Pure Python functions for Takeaway.com API integration
+- No Streamlit dependencies - fully testable independently
+- Parallel order fetching using threading
+- Cloudflare bypass with `cloudscraper`
+
+### Token Management
+
+- **Refresh Token**: Stored in `.env` file (never committed)
+- **Access Token**: Automatically acquired on app startup, cached in session state
+- **Expiration Check**: JWT decoding with 5-minute buffer for proactive refresh
+- **Minimal API Calls**: Token refreshed only when expired or on first startup
 
 ## Deployment
 
 For production deployment:
 
-1. Set environment variables in `.streamlit/secrets.toml`:
-   ```toml
-   backend_url = "https://your-api-endpoint.com"
-   ```
+1. Set environment variable `TAKEAWAY_REFRESH_TOKEN`
+2. Deploy to Streamlit Cloud or your preferred hosting
+3. The app will automatically handle token refresh
 
-2. Deploy to Streamlit Cloud:
-   ```bash
-   streamlit deploy
-   ```
+## Development
 
-   Or use Docker:
-   ```bash
-   docker build -t takeawaybill-frontend .
-   docker run -p 8501:8501 takeawaybill-frontend
-   ```
+**Hot Reload:** Streamlit auto-reloads on file changes.
+
+**Testing Backend:** Call functions directly:
+```python
+from backend import fetch_orders_by_date, refresh_tokens
+token = refresh_tokens()
+orders = fetch_orders_by_date(token, '2024-01-15')
+```
+
+**Debugging:** Add `print()` statements or use Python debugger.
+
+## Deployment
+
+For production deployment:
+
+1. Set environment variable `TAKEAWAY_REFRESH_TOKEN`
+2. Deploy to Streamlit Cloud or your preferred hosting
+3. The app will automatically handle token refresh
 
 ## Architecture
 
-- **app.py** - Main Streamlit application with page components
-- **AuthManager** - Handles JWT token management and API authentication
-- **Session State** - Stores authentication tokens and fetched data in Streamlit session
+- **app.py** - Main Streamlit application with page components and token management
+- **backend.py** - Pure Python API module (no Streamlit dependencies)
+- **AuthManager** - Handles both user authentication and API token caching
+- **Session State** - Stores user tokens, API tokens, and fetched data
 
 ## Token Management
 
-The app handles JWT tokens automatically:
-- Stores tokens in session state (browser memory)
-- Checks token expiration before each API call
-- Auto-refreshes expired tokens
-- Redirects to login if refresh fails
+The app handles OAuth2 tokens automatically:
+- Refresh token stored securely in environment variables
+- Access tokens cached in session state to persist across page reruns
+- JWT expiration checked with 5-minute buffer for proactive refresh
+- Minimal API calls - refresh only on startup or expiration
+- Automatic token rotation when Takeaway.com provides new refresh tokens
 
 ## Error Handling
 
 - API errors display user-friendly messages
-- 401 Unauthorized responses trigger re-login
+- Token expiration triggers automatic refresh
 - Network errors are caught and displayed
-- Invalid credentials prevent login
+- Invalid refresh tokens prevent app startup
 
 ## Notes
 
-- All requests include the `accessToken` header
-- Tokens are not persisted (cleared on page refresh)
-- Compatible with existing Flask backend
+- All API requests use Bearer token authentication
+- Tokens cached in session state (cleared on browser refresh)
+- Pure Python backend - no external server dependencies

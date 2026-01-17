@@ -17,9 +17,6 @@ import requests
 # Load refresh token from environment
 TAKEAWAY_REFRESH_TOKEN = os.getenv("TAKEAWAY_REFRESH_TOKEN")
 
-# Access token will be acquired on startup
-TAKEAWAY_ACCESS_TOKEN = None
-
 
 class ThreadWithReturnValue(Thread):
     """Thread subclass that captures return value from target function."""
@@ -99,7 +96,7 @@ def _fetch_orders_page(
         return None
 
 
-def refresh_tokens() -> bool:
+def refresh_tokens() -> str:
     """
     Refresh Takeaway.com OAuth access token using refresh token.
 
@@ -107,12 +104,12 @@ def refresh_tokens() -> bool:
     from Takeaway.com's Partner Hub.
 
     Returns:
-        True if tokens refreshed successfully, False otherwise
+        The new access token if successful, None otherwise
 
     Raises:
         Exception: If token refresh fails
     """
-    global TAKEAWAY_ACCESS_TOKEN, TAKEAWAY_REFRESH_TOKEN
+    global TAKEAWAY_REFRESH_TOKEN
 
     print("Refreshing Takeaway.com access token...")
     scraper = cloudscraper.create_scraper()
@@ -135,17 +132,17 @@ def refresh_tokens() -> bool:
             )
             print(f"Response status: {result.status_code}")
             print(f"Response content (first 200 chars): {result.text[:200]}")
-            return False
+            return None
 
         # Check if response is a dict (not a list or string)
         if not isinstance(response, dict):
             print(
                 f"Token refresh error: Expected dict response, got {type(response).__name__}"
             )
-            return False
+            return None
 
         if response.get("access_token"):
-            TAKEAWAY_ACCESS_TOKEN = response.get("access_token")
+            access_token = response.get("access_token")
 
             # If refresh token rotated, update it
             if response.get("refresh_token"):
@@ -153,7 +150,7 @@ def refresh_tokens() -> bool:
                 os.environ["TAKEAWAY_REFRESH_TOKEN"] = response.get("refresh_token")
 
             print("Access token refreshed successfully")
-            return True
+            return access_token
 
         # Handle error response from Takeaway.com
         error_msg = (
@@ -164,34 +161,20 @@ def refresh_tokens() -> bool:
         raise Exception(f"Failed to refresh token: {error_msg}")
     except Exception as e:
         print(f"Token refresh error: {str(e)}")
-        return False
-
-
-def get_access_token() -> str:
-    """
-    Get current access token, refreshing if needed.
-
-    Returns:
-        Current valid access token
-
-    Raises:
-        Exception: If token refresh fails
-    """
-    global TAKEAWAY_ACCESS_TOKEN
-    if TAKEAWAY_ACCESS_TOKEN:
-        return TAKEAWAY_ACCESS_TOKEN
-    # If no token, refresh to get one
-    refresh_tokens()
-    return TAKEAWAY_ACCESS_TOKEN
+        return None
 
 
 def fetch_orders_by_date(
-    date: str, sortColumn: str = "createdAt", sortDirection: str = "asc"
+    access_token: str,
+    date: str,
+    sortColumn: str = "createdAt",
+    sortDirection: str = "asc",
 ) -> List[dict]:
     """
     Fetch historical orders for a specific date.
 
     Args:
+        access_token: OAuth access token for Takeaway.com API
         date: Date in format 'YYYY-MM-DD'
         sortColumn: Column to sort by (default: 'createdAt')
         sortDirection: 'asc' or 'desc' (default: 'asc')
@@ -202,7 +185,6 @@ def fetch_orders_by_date(
     Raises:
         Exception: If API call fails
     """
-    access_token = get_access_token()
 
     tempDate = pd.to_datetime(date, format="%Y-%m-%d")
     dayOfYear = tempDate.dayofyear
@@ -267,9 +249,12 @@ def fetch_orders_by_date(
         raise
 
 
-def fetch_live_orders() -> List[dict]:
+def fetch_live_orders(access_token: str) -> List[dict]:
     """
     Fetch active/live orders from Takeaway.com.
+
+    Args:
+        access_token: OAuth access token for Takeaway.com API
 
     Returns:
         List of currently active orders with customer and product details
@@ -277,7 +262,6 @@ def fetch_live_orders() -> List[dict]:
     Raises:
         Exception: If API call fails after retries
     """
-    access_token = get_access_token()
     orders: List[dict] = []
 
     for attempt in range(10):

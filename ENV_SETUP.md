@@ -39,10 +39,18 @@ The app requires a `.env` file in the root directory with your Takeaway.com refr
 ## How It Works
 
 1. App starts and reads `TAKEAWAY_REFRESH_TOKEN` from `.env`
-2. On first API call, app exchanges refresh token for access token via Takeaway.com
-3. Access token is stored in memory and used for API requests
-4. When access token expires, it's automatically refreshed using the refresh token
-5. If Takeaway.com returns a new refresh token (token rotation), it's automatically updated
+2. On user login, `AuthManager.ensure_api_token()` is called
+3. If no cached access token exists or it's expired, exchanges refresh token for access token via Takeaway.com OAuth2
+4. Access token is stored in Streamlit session state (persists across page reruns)
+5. When access token expires (checked via JWT decoding), it's automatically refreshed using the refresh token
+6. If Takeaway.com returns a new refresh token (token rotation), it's automatically updated in environment
+7. All API calls use the cached access token from session state
+
+## Token Caching
+
+- **Session State**: Access tokens cached in Streamlit session state to avoid refreshing on every page rerun
+- **Expiration Buffer**: Tokens refreshed 5 minutes before expiration to prevent API failures
+- **Minimal API Calls**: Refresh endpoint called only on app startup or when tokens actually expire
 
 ## Troubleshooting
 
@@ -69,5 +77,11 @@ Solution:
 - Ensure the token is from the correct API/account
 
 **Backend starts but API calls fail:**
-- Tokens may have expired → refresh via API or update in `.env`
+- Tokens may have expired → refresh via Settings page or restart app
 - Check Takeaway.com account has active API access
+- Verify internet connection for OAuth2 calls
+
+**Token cached but still refreshing:**
+- Clear browser cache/cookies to reset Streamlit session
+- Check if app was restarted (session state cleared)
+- JWT expiration check may be failing - check console logs

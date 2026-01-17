@@ -42,34 +42,69 @@ class AuthManager:
 
     def __init__(self):
         self.session_key = "auth_tokens"
+        self.api_token_key = "api_access_token"
 
     def get_tokens(self) -> dict:
-        """Get stored tokens from session"""
+        """Get stored user tokens from session"""
         return st.session_state.get(self.session_key, {})
 
     def save_tokens(self, access_token: str, refresh_token: str):
-        """Save tokens to session"""
+        """Save user tokens to session"""
         st.session_state[self.session_key] = {
             "access_token": access_token,
             "refresh_token": refresh_token,
             "saved_at": datetime.now().isoformat(),
         }
 
-    def clear_tokens(self):
-        """Clear tokens from session"""
+    def get_api_token(self) -> Optional[str]:
+        """Get stored API access token from session"""
+        return st.session_state.get(self.api_token_key)
 
-    def is_token_expired(self, token: str) -> bool:
-        """Check if JWT token is expired"""
+    def save_api_token(self, token: str):
+        """Save API access token to session"""
+        st.session_state[self.api_token_key] = token
+
+    def clear_api_token(self):
+        """Clear API token from session"""
+        if self.api_token_key in st.session_state:
+            del st.session_state[self.api_token_key]
+
+    def is_api_token_expired(self, token: str) -> bool:
+        """Check if API JWT token is expired"""
         if not token:
             return True
         try:
             decoded = jwt.decode(token, options={"verify_signature": False})
             exp = decoded.get("exp")
             if exp:
-                return datetime.fromtimestamp(exp) < datetime.now()
+                # Add 5-minute buffer
+                return datetime.fromtimestamp(exp) < (
+                    datetime.now() + timedelta(minutes=5)
+                )
         except:
             return True
         return False
+
+    def refresh_api_token(self) -> bool:
+        """Refresh the API access token"""
+        token = refresh_tokens()
+        if token:
+            self.save_api_token(token)
+            return True
+        return False
+
+    def ensure_api_token(self) -> bool:
+        """Ensure API token is available and valid, refresh if needed"""
+        token = self.get_api_token()
+        if not token or self.is_api_token_expired(token):
+            return self.refresh_api_token()
+        return True
+
+    def clear_tokens(self):
+        """Clear user tokens from session"""
+        if self.session_key in st.session_state:
+            del st.session_state[self.session_key]
+        self.clear_api_token()
 
     def login(self, username: str, password: str) -> bool:
         """
@@ -157,8 +192,11 @@ def orders_page():
 
     if st.button("Fetch Orders", key="fetch_orders"):
         try:
+            auth = AuthManager()
+            token = auth.get_api_token()
             with st.spinner("Fetching orders..."):
                 orders = fetch_orders_by_date(
+                    token,
                     selected_date.strftime("%Y-%m-%d"),
                     sort_column,
                     sort_direction,
@@ -228,8 +266,10 @@ def live_orders_page():
 
     if st.button("Refresh Live Orders", key="refresh_live"):
         try:
+            auth = AuthManager()
+            token = auth.get_api_token()
             with st.spinner("Fetching live orders..."):
-                orders = fetch_live_orders()
+                orders = fetch_live_orders(token)
             st.session_state["live_orders"] = orders
         except Exception as e:
             st.error(f"Error: {e}")
@@ -309,7 +349,8 @@ def settings_page():
     with col1:
         st.write(f"**Logged in at:** {tokens.get('saved_at', 'N/A')}")
         if st.button("Refresh API Tokens", use_container_width=True):
-            if refresh_tokens():
+            auth = AuthManager()
+            if auth.refresh_api_token():
                 st.success("API tokens refreshed!")
                 st.rerun()
             else:
@@ -333,6 +374,12 @@ def main():
 
     # Sidebar navigation
     if ensure_authenticated():
+        auth = AuthManager()
+        # Ensure API token is available
+        if not auth.ensure_api_token():
+            st.error("Failed to authenticate with Takeaway.com API")
+            return
+
         st.sidebar.title("🍽️ takeAwayBill")
 
         page = st.sidebar.radio(
