@@ -5,6 +5,7 @@ Handles all API interactions with Takeaway.com, token management,
 and order fetching. Separate from Streamlit UI.
 """
 
+import json
 import os
 from datetime import timedelta
 from threading import Thread
@@ -13,6 +14,7 @@ from typing import List, Dict
 import cloudscraper
 import pandas as pd
 import requests
+from yaml import warnings
 
 # Load refresh token from environment
 TAKEAWAY_REFRESH_TOKEN = os.getenv("TAKEAWAY_REFRESH_TOKEN")
@@ -266,39 +268,42 @@ def fetch_live_orders(access_token: str) -> List[dict]:
         Exception: If API call fails after retries
     """
     orders: List[dict] = []
+    isFailed = True
 
-    for attempt in range(10):
+    for i in range(10):
         try:
             scraper = cloudscraper.create_scraper()
             result = scraper.get(
                 "https://live-orders-api.takeaway.com/api/orders",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
+            isFailed = False
+        except Exception:
+            print(f"failed {i} times")
 
-            for order_data in result.json():
+        if not isFailed:
+            for order in result.json():
                 order = {
-                    "placedDate": order_data.get("placed_date"),
-                    "requestedTime": order_data.get("requested_time"),
-                    "paymentType": order_data.get("payment_type"),
-                    "subtotal": order_data.get("subtotal"),
-                    "restaurantTotal": order_data.get("restaurant_total"),
-                    "customerTotal": order_data.get("customer_total"),
-                    "orderCode": order_data.get("public_reference"),
-                    "deliveryFee": order_data.get("delivery_fee"),
+                    "placedDate": order.get("placed_date"),
+                    "requestedTime": order.get("requested_time"),
+                    "paymentType": order.get("payment_type"),
+                    "subtotal": order.get("subtotal"),
+                    "restaurantTotal": order.get("restaurant_total"),
+                    "customerTotal": order.get("customer_total"),
+                    "orderCode": order.get("public_reference"),
+                    "deliveryFree": order.get("delivery_fee"),
                     "customer": {
-                        "fullName": order_data.get("customer", {}).get("full_name"),
-                        "street": order_data.get("customer", {}).get("street"),
-                        "streetNumber": order_data.get("customer", {}).get(
-                            "street_number"
-                        ),
-                        "postcode": order_data.get("customer", {}).get("postcode"),
-                        "city": order_data.get("customer", {}).get("city"),
+                        "fullName": order.get("customer").get("full_name"),
+                        "street": order.get("customer").get("street"),
+                        "streetNumber": order.get("customer").get("street_number"),
+                        "postcode": order.get("customer").get("postcode"),
+                        "city": order.get("customer").get("city"),
                         "extra": (
-                            order_data.get("customer", {}).get("extra", [None])[0] or ""
+                            order.get("customer").get("extra")[0]
+                            if len(order.get("customer").get("extra")) > 0
+                            else ""
                         ),
-                        "phoneNumber": order_data.get("customer", {}).get(
-                            "phone_number"
-                        ),
+                        "phoneNumber": order.get("customer").get("phone_number"),
                     },
                     "products": [
                         {
@@ -308,26 +313,31 @@ def fetch_live_orders(access_token: str) -> List[dict]:
                             "code": product.get("code"),
                             "specifications": [
                                 {
-                                    "name": spec.get("name"),
-                                    "totalAmount": spec.get("total_amount"),
+                                    "name": specification.get("name"),
+                                    "totalAmount": specification.get("total_amount"),
                                 }
-                                for spec in product.get("specifications", [])
+                                for specification in product.get("specifications")
                             ],
                         }
-                        for product in order_data.get("products", [])
+                        for product in order.get("products")
                     ],
-                    "status": order_data.get("status"),
+                    "status": order.get("status"),
                 }
                 orders.append(order)
+            break
 
-            orders.sort(key=lambda o: o.get("placedDate", ""), reverse=True)
+    orders = sorted(orders, key=lambda order: order.get("placedDate"), reverse=True)
 
-            print(f"Retrieved {len(orders)} live orders")
-            return orders
+    if isFailed:
+        warnings.warn("Takeaway API call failed after retries", RuntimeWarning)
+        return [], 200
 
-        except Exception as e:
-            print(f"Attempt {attempt + 1} failed: {str(e)}")
-            if attempt == 9:
-                raise
+    return orders, 200
 
-    return []
+
+if __name__ == "__main__":
+    # Example usage
+    token = refresh_tokens()
+    if token:
+        orders = fetch_live_orders(token)
+        print(orders)
