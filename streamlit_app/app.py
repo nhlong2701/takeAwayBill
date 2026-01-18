@@ -275,6 +275,11 @@ def live_orders_page():
             token = auth.get_api_token()
             with st.spinner("Fetching live orders..."):
                 orders = fetch_live_orders(token)
+
+            # if API returns (orders_list, status_code)
+            if isinstance(orders, tuple) and len(orders) >= 1:
+                orders = orders[0]
+
             st.session_state["live_orders"] = orders
         except Exception as e:
             st.error(f"Error: {e}")
@@ -297,38 +302,50 @@ def live_orders_page():
             st.metric("Active Orders", len(orders))
 
             # Display orders in tabs by status
-            statuses = list(set([o.get("status") for o in orders]))
+            statuses = list(set([(o.get("status") or "unknown") for o in orders]))
             tabs = st.tabs(
                 [
-                    f"{status.upper()} ({len([o for o in orders if o.get('status') == status])})"
+                    f"{status.upper()} ({len([o for o in orders if (o.get('status') or 'unknown') == status])})"
                     for status in statuses
                 ]
             )
 
             for tab, status in zip(tabs, statuses):
                 with tab:
-                    status_orders = [o for o in orders if o.get("status") == status]
+                    status_orders = [
+                        o for o in orders if (o.get("status") or "unknown") == status
+                    ]
 
                     for order in status_orders:
                         with st.container(border=True):
                             col1, col2, col3 = st.columns([2, 2, 1])
 
+                            customer = order.get("customer", {}) or {}
+
                             with col1:
                                 st.write(f"**Order:** {order.get('orderCode')}")
+                                st.write(f"**Customer:** {customer.get('fullName')}")
+
+                                # ✅ MINIMAL FIX: streetNumber not street_number
                                 st.write(
-                                    f"**Customer:** {order.get('customer', {}).get('fullName')}"
-                                )
-                                st.write(
-                                    f"**Address:** {order.get('customer', {}).get('street')} {order.get('customer', {}).get('street_number')}"
+                                    f"**Address:** {customer.get('street') or ''} {customer.get('streetNumber') or ''}"
                                 )
 
                             with col2:
-                                st.write(f"**Placed:** {order.get('placedDate')}")
-                                st.write(f"**Requested:** {order.get('requestedTime')}")
-                                st.write(f"**Payment:** {order.get('paymentType')}")
+                                st.write(
+                                    f"**Placed:** {order.get('placedDate') or '—'}"
+                                )
+                                st.write(
+                                    f"**Requested:** {order.get('requestedTime') or '—'}"
+                                )
+                                st.write(
+                                    f"**Payment:** {order.get('paymentType') or '—'}"
+                                )
 
                             with col3:
-                                st.write(f"**Total:** €{order.get('customerTotal', 0)}")
+                                st.write(
+                                    f"**Total:** €{order.get('customerTotal') or 0}"
+                                )
                                 st.write(f"**Status:** {status}")
 
                             # Products
@@ -336,7 +353,7 @@ def live_orders_page():
                                 st.write("**Items:**")
                                 for product in order.get("products"):
                                     st.write(
-                                        f"  • {product.get('quantity')}x {product.get('name')} - €{product.get('totalAmount')}"
+                                        f"  • {product.get('quantity', 0)}x {product.get('name', '—')} - €{product.get('totalAmount') or 0}"
                                     )
         else:
             st.info("No live orders at the moment.")
