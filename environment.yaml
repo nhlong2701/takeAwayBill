@@ -26,3 +26,4 @@ dependencies:
     - pyjwt==2.8.0
     - cloudscraper==1.2.71
     - python-dotenv==1.0.0
+    - extra-streamlit-components==0.1.71
