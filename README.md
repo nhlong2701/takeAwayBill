@@ -87,6 +87,7 @@ The app integrates with Takeaway.com's APIs:
 **Environment Variables (.env):**
 ```bash
 TAKEAWAY_REFRESH_TOKEN=your_refresh_token_here
+APP_AUTH_COOKIE_SECRET=replace_with_a_long_random_secret
 ```
 
 **Timezone (optional):**

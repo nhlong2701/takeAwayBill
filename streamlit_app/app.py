@@ -11,7 +11,16 @@ import pandas as pd
 from datetime import datetime, timedelta
 import time
 from typing import Optional
+import base64
+import hashlib
+import hmac
+import json
 import jwt
+
+try:
+    import extra_streamlit_components as stx
+except ImportError:
+    stx = None
 
 # Import backend functions
 from streamlit_app.backend import (
@@ -41,6 +50,44 @@ class AuthManager:
     def __init__(self):
         self.session_key = "auth_tokens"
         self.api_token_key = "api_access_token"
+        self.api_token_exp_key = "api_access_token_exp"
+        self.cookie_name = "takeawaybill_auth"
+        self.cookie_secret = os.getenv("APP_AUTH_COOKIE_SECRET", "dev-secret")
+        self._cookie_manager = None
+
+    def _get_cookie_manager(self):
+        if self._cookie_manager is None and stx is not None:
+            self._cookie_manager = stx.CookieManager()
+        return self._cookie_manager
+
+    def _sign_cookie_payload(self, payload: str) -> str:
+        signature = hmac.new(
+            self.cookie_secret.encode("utf-8"),
+            payload.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+        return signature
+
+    def _encode_cookie_value(self, username: str, expires_at: float) -> str:
+        payload = json.dumps({"username": username, "exp": expires_at}, separators=(",", ":"))
+        payload_b64 = base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8")
+        signature = self._sign_cookie_payload(payload_b64)
+        return f"{payload_b64}.{signature}"
+
+    def _decode_cookie_value(self, cookie_value: str) -> Optional[dict]:
+        try:
+            payload_b64, signature = cookie_value.split(".", 1)
+            expected_signature = self._sign_cookie_payload(payload_b64)
+            if not hmac.compare_digest(signature, expected_signature):
+                return None
+
+            payload_json = base64.urlsafe_b64decode(payload_b64.encode("utf-8")).decode("utf-8")
+            payload = json.loads(payload_json)
+            if payload.get("exp", 0) < datetime.now().timestamp():
+                return None
+            return payload
+        except Exception:
+            return None
 
     def get_tokens(self) -> dict:
         """Get stored user tokens from session"""
@@ -54,6 +101,41 @@ class AuthManager:
             "saved_at": datetime.now().isoformat(),
         }
 
+    def save_remembered_login(self, username: str, days: int = 7):
+        """Persist a signed login marker in browser cookies."""
+        cookie_manager = self._get_cookie_manager()
+        if cookie_manager is None:
+            return
+
+        expires_at = datetime.now() + timedelta(days=days)
+        cookie_manager.set(
+            self.cookie_name,
+            self._encode_cookie_value(username, expires_at.timestamp()),
+            expires_at=expires_at,
+        )
+
+    def load_remembered_login(self) -> Optional[str]:
+        """Load remembered username from cookies if signature and expiry are valid."""
+        cookie_manager = self._get_cookie_manager()
+        if cookie_manager is None:
+            return None
+
+        cookie_value = cookie_manager.get(self.cookie_name)
+        if not cookie_value:
+            return None
+
+        payload = self._decode_cookie_value(cookie_value)
+        if not payload:
+            return None
+        return payload.get("username")
+
+    def clear_remembered_login(self):
+        """Remove remembered login cookie."""
+        cookie_manager = self._get_cookie_manager()
+        if cookie_manager is None:
+            return
+        cookie_manager.delete(self.cookie_name)
+
     def get_api_token(self) -> Optional[str]:
         """Get stored API access token from session"""
         return st.session_state.get(self.api_token_key)
@@ -61,27 +143,39 @@ class AuthManager:
     def save_api_token(self, token: str):
         """Save API access token to session"""
         st.session_state[self.api_token_key] = token
+        token_exp = self._decode_token_exp(token)
+        st.session_state[self.api_token_exp_key] = token_exp
 
     def clear_api_token(self):
         """Clear API token from session"""
         if self.api_token_key in st.session_state:
             del st.session_state[self.api_token_key]
+        if self.api_token_exp_key in st.session_state:
+            del st.session_state[self.api_token_exp_key]
+
+    def _decode_token_exp(self, token: str) -> Optional[float]:
+        """Decode JWT expiry timestamp without verifying signature."""
+        try:
+            decoded = jwt.decode(token, options={"verify_signature": False})
+            exp = decoded.get("exp")
+            return float(exp) if exp else None
+        except Exception:
+            return None
 
     def is_api_token_expired(self, token: str) -> bool:
         """Check if API JWT token is expired"""
         if not token:
             return True
-        try:
-            decoded = jwt.decode(token, options={"verify_signature": False})
-            exp = decoded.get("exp")
-            if exp:
-                # Add 5-minute buffer
-                return datetime.fromtimestamp(exp) < (
-                    datetime.now() + timedelta(minutes=5)
-                )
-        except:
+
+        exp = st.session_state.get(self.api_token_exp_key)
+        if exp is None:
+            exp = self._decode_token_exp(token)
+
+        if exp is None:
             return True
-        return False
+
+        # Add small buffer to avoid edge cases during long requests.
+        return datetime.fromtimestamp(exp) < (datetime.now() + timedelta(minutes=1))
 
     def refresh_api_token(self) -> bool:
         """Refresh the API access token"""
@@ -132,16 +226,34 @@ class AuthManager:
             return True
         return False
 
+    def restore_session_from_cookie(self) -> bool:
+        """Restore app login session from remembered cookie if available."""
+        username = self.load_remembered_login()
+        if not username:
+            return False
+
+        token_payload = {
+            "username": username,
+            "iat": datetime.now().timestamp(),
+            "exp": (datetime.now() + timedelta(days=7)).timestamp(),
+        }
+        access_token = jwt.encode(token_payload, "secret", algorithm="HS256")
+        self.save_tokens(access_token, "")
+        return True
+
     def logout(self):
         """Logout user"""
         self.clear_tokens()
+        self.clear_remembered_login()
 
 
 def ensure_authenticated():
     """Ensure user is authenticated"""
     auth = AuthManager()
     tokens = auth.get_tokens()
-    return bool(tokens)
+    if tokens:
+        return True
+    return auth.restore_session_from_cookie()
 
 
 def login_page():
@@ -155,10 +267,20 @@ def login_page():
         st.markdown("---")
         username = st.text_input("Username", key="login_username")
         password = st.text_input("Password", type="password", key="login_password")
+        remember_me = st.checkbox("Remember me on this browser", value=True)
+
+        if stx is None:
+            st.caption(
+                "Install `extra-streamlit-components` to enable persistent login cookies."
+            )
 
         if st.button("Login", use_container_width=True, type="primary"):
             auth = AuthManager()
             if auth.login(username, password):
+                if remember_me:
+                    auth.save_remembered_login(username)
+                else:
+                    auth.clear_remembered_login()
                 st.success("Login successful!")
                 st.rerun()
             else:
