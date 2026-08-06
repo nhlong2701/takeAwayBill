@@ -165,7 +165,7 @@ def login_page():
                 st.error("Login failed. Please try again.")
 
 
-def orders_page():
+def historical_orders_page():
     """Display historical orders"""
     st.header("📋 Historical Orders")
 
@@ -413,7 +413,7 @@ def main():
         )
 
         if page == "📋 Orders":
-            orders_page()
+            historical_orders_page()
         elif page == "🔴 Live Orders":
             live_orders_page()
         elif page == "⚙️ Settings":
