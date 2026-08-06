@@ -5,19 +5,28 @@ Handles all API interactions with Takeaway.com, token management,
 and order fetching. Separate from Streamlit UI.
 """
 
-import json
 import os
 from datetime import timedelta
 from threading import Thread
-from typing import List, Dict
+from typing import Dict, List, Optional, Tuple
 
 import cloudscraper
 import pandas as pd
 import requests
-from yaml import warnings
+import warnings
 
 # Load refresh token from environment
 TAKEAWAY_REFRESH_TOKEN = os.getenv("TAKEAWAY_REFRESH_TOKEN")
+
+TOKEN_URL = (
+    "https://partner-hub.justeattakeaway.com/auth/realms/restaurant/"
+    "protocol/openid-connect/token"
+)
+HISTORICAL_ORDERS_URL = (
+    "https://restaurant-portal-api.takeaway.com/api/restaurant/orders"
+)
+LIVE_ORDERS_URL = "https://live-orders-api.takeaway.com/api/orders"
+MAX_LIVE_ORDER_RETRIES = 10
 
 
 class ThreadWithReturnValue(Thread):
@@ -55,49 +64,6 @@ class ThreadWithReturnValue(Thread):
         return self._return
 
 
-def _fetch_orders_page(
-    token: str, year: int, dayOfYear: int, page: int
-) -> pd.DataFrame:
-    """
-    Fetch a single page of orders from Takeaway.com API.
-
-    Args:
-        token: OAuth access token for Takeaway.com API
-        year: Year for the query
-        dayOfYear: Day of year for the query (1-366)
-        page: Page number to fetch
-
-    Returns:
-        DataFrame with order data from the specified page
-    """
-    try:
-        result = requests.get(
-            f"https://restaurant-portal-api.takeaway.com/api/restaurant/orders"
-            f"?period_type=day&year={year}&number={dayOfYear}&page={page}",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        response_data = result.json()
-
-        # Handle invalid response structure
-        if not isinstance(response_data, dict):
-            print(
-                f"Error fetching page {page}: Invalid response format (expected dict, got {type(response_data).__name__})"
-            )
-            return None
-
-        # Check for error response
-        if response_data.get("error"):
-            print(
-                f"Error fetching page {page}: {response_data.get('error_description', response_data.get('error'))}"
-            )
-            return None
-
-        return pd.DataFrame(response_data.get("data", {}).get("orders", []))
-    except Exception as e:
-        print(f"Error fetching page {page}: {str(e)}")
-        return None
-
-
 def refresh_tokens() -> str:
     """
     Refresh Takeaway.com OAuth access token using refresh token.
@@ -118,7 +84,7 @@ def refresh_tokens() -> str:
 
     try:
         result = scraper.post(
-            "https://partner-hub.justeattakeaway.com/auth/realms/restaurant/protocol/openid-connect/token",
+            TOKEN_URL,
             data={
                 "grant_type": "refresh_token",
                 "client_id": "restaurant-portal",
@@ -166,11 +132,88 @@ def refresh_tokens() -> str:
         return None
 
 
+############## FOR HISTORICAL ORDERS ##############
+
+
+def _normalize_historical_orders(
+    pages: List[pd.DataFrame],
+    requested_date: pd.Timestamp,
+    sort_column: str,
+    sort_direction: str,
+) -> pd.DataFrame:
+    """Combine pages and shape them into the UI-friendly historical order format."""
+    bills_df = pd.concat(pages, ignore_index=True)
+
+    bills_df["Total amount"] = bills_df["amount"].str.replace(",", ".").astype(float)
+    bills_df["Paid online"] = bills_df["paid_online"].fillna(False)
+    bills_df["Date"] = pd.to_datetime(bills_df["date"], format="%d-%m-%Y %H:%M:%S")
+
+    bills_df = bills_df.loc[bills_df["Date"].dt.day == requested_date.day]
+    bills_df = bills_df.rename(
+        columns={
+            "Date": "createdAt",
+            "code": "orderCode",
+            "city": "postcode",
+            "Total amount": "price",
+            "Paid online": "paidOnline",
+        }
+    )
+    bills_df["paidOnline"] = bills_df["paidOnline"].astype(int)
+    bills_df["paidOnline"] = bills_df["paidOnline"].map({0: "Cash", 1: "Online"})
+    bills_df = bills_df.rename(columns={"paidOnline": "Payment type"})
+    bills_df = bills_df[["createdAt", "orderCode", "postcode", "price", "Payment type"]]
+
+    return bills_df.sort_values(by=sort_column, ascending=(sort_direction == "asc"))
+
+
+def _fetch_orders_page(
+    token: str, year: int, day_of_year: int, page: int
+) -> pd.DataFrame:
+    """
+    Fetch a single page of orders from Takeaway.com API.
+
+    Args:
+        token: OAuth access token for Takeaway.com API
+        year: Year for the query
+        day_of_year: Day of year for the query (1-366)
+        page: Page number to fetch
+
+    Returns:
+        DataFrame with order data from the specified page
+    """
+    try:
+        result = requests.get(
+            f"{HISTORICAL_ORDERS_URL}"
+            f"?period_type=day&year={year}&number={day_of_year}&page={page}",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        response_data = result.json()
+
+        # Handle invalid response structure
+        if not isinstance(response_data, dict):
+            print(
+                f"Error fetching page {page}: Invalid response format (expected dict, got {type(response_data).__name__})"
+            )
+            return None
+
+        # Check for error response
+        if response_data.get("error"):
+            print(
+                f"Error fetching page {page}: {response_data.get('error_description', response_data.get('error'))}"
+            )
+            return None
+
+        return pd.DataFrame(response_data.get("data", {}).get("orders", []))
+    except Exception as e:
+        print(f"Error fetching page {page}: {str(e)}")
+        return None
+
+
 def fetch_orders_by_date(
     access_token: str,
     date: str,
-    sortColumn: str = "createdAt",
-    sortDirection: str = "asc",
+    sort_column: str = "createdAt",
+    sort_direction: str = "asc",
 ) -> List[dict]:
     """
     Fetch historical orders for a specific date.
@@ -178,8 +221,8 @@ def fetch_orders_by_date(
     Args:
         access_token: OAuth access token for Takeaway.com API
         date: Date in format 'YYYY-MM-DD'
-        sortColumn: Column to sort by (default: 'createdAt')
-        sortDirection: 'asc' or 'desc' (default: 'asc')
+        sort_column: Column to sort by (default: 'createdAt')
+        sort_direction: 'asc' or 'desc' (default: 'asc')
 
     Returns:
         List of order dictionaries for the specified date
@@ -188,25 +231,29 @@ def fetch_orders_by_date(
         Exception: If API call fails
     """
 
-    tempDate = pd.to_datetime(date, format="%Y-%m-%d")
-    dayOfYear = tempDate.dayofyear
-    if tempDate.dayofweek == 6:
-        tempDate = tempDate + timedelta(days=1)
-    year = tempDate.date().year
+    requested_date = pd.to_datetime(date, format="%Y-%m-%d")
+    day_of_year = requested_date.dayofyear
+
+    # API edge case: Sunday requests are handled by querying the next day.
+    query_date = requested_date
+    if requested_date.dayofweek == 6:
+        query_date = requested_date + timedelta(days=1)
+    year = query_date.date().year
 
     try:
         result = requests.get(
-            f"https://restaurant-portal-api.takeaway.com/api/restaurant/orders"
-            f"?period_type=day&year={year}&number={dayOfYear}",
+            f"{HISTORICAL_ORDERS_URL}"
+            f"?period_type=day&year={year}&number={day_of_year}",
             headers={"Authorization": f"Bearer {access_token}"},
         )
-        totalPages = result.json().get("meta", {}).get("total_pages", 1)
+        total_pages = result.json().get("meta", {}).get("total_pages", 1)
 
+        # Fetch each page concurrently to reduce total wait time.
         threads = []
-        for page in range(1, totalPages + 1):
+        for page in range(1, total_pages + 1):
             thread = ThreadWithReturnValue(
                 target=_fetch_orders_page,
-                args=(access_token, year, dayOfYear, page),
+                args=(access_token, year, day_of_year, page),
             )
             threads.append(thread)
             thread.start()
@@ -220,41 +267,68 @@ def fetch_orders_by_date(
         if not dfs:
             return []
 
-        billsDf = pd.concat(dfs, ignore_index=True)
-        billsDf["Total amount"] = billsDf["amount"].str.replace(",", ".").astype(float)
-        billsDf["Paid online"] = billsDf["paid_online"].fillna(False)
-        billsDf["Date"] = pd.to_datetime(billsDf["date"], format="%d-%m-%Y %H:%M:%S")
-
-        billsDf = billsDf.loc[
-            billsDf["Date"].dt.day == pd.to_datetime(date, format="%Y-%m-%d").day
-        ]
-
-        billsDf = billsDf.rename(
-            columns={
-                "Date": "createdAt",
-                "code": "orderCode",
-                "city": "postcode",
-                "Total amount": "price",
-                "Paid online": "paidOnline",
-            }
+        bills_df = _normalize_historical_orders(
+            pages=dfs,
+            requested_date=requested_date,
+            sort_column=sort_column,
+            sort_direction=sort_direction,
         )
-        billsDf["paidOnline"] = billsDf["paidOnline"].astype(int)
-        billsDf["paidOnline"] = billsDf["paidOnline"].map({0: "Cash", 1: "Online"})
-        billsDf = billsDf.rename(columns={"paidOnline": "Payment type"})
-        billsDf = billsDf[
-            ["createdAt", "orderCode", "postcode", "price", "Payment type"]
-        ]
-        billsDf = billsDf.sort_values(by=sortColumn, ascending=(sortDirection == "asc"))
 
-        print(f"Retrieved {len(billsDf)} orders for {date}")
-        return billsDf.to_dict(orient="records")
+        print(f"Retrieved {len(bills_df)} orders for {date}")
+        return bills_df.to_dict(orient="records")
 
     except Exception as e:
         print(f"Error fetching orders: {str(e)}")
         raise
 
 
-def fetch_live_orders(access_token: str) -> List[dict]:
+############## FOR LIVE ORDERS ##############
+
+
+def _map_live_order(order: dict) -> dict:
+    """Map a live-order payload into the response schema used by the app."""
+    customer = order.get("customer") or {}
+    customer_extra = customer.get("extra") or []
+
+    return {
+        "placedDate": order.get("placed_date"),
+        "requestedTime": order.get("requested_time"),
+        "paymentType": order.get("payment_type"),
+        "subtotal": order.get("subtotal"),
+        "restaurantTotal": order.get("restaurant_total"),
+        "customerTotal": order.get("customer_total"),
+        "orderCode": order.get("public_reference"),
+        "deliveryFree": order.get("delivery_fee"),
+        "customer": {
+            "fullName": customer.get("full_name"),
+            "street": customer.get("street"),
+            "streetNumber": customer.get("street_number"),
+            "postcode": customer.get("postcode"),
+            "city": customer.get("city"),
+            "extra": customer_extra[0] if customer_extra else "",
+            "phoneNumber": customer.get("phone_number"),
+        },
+        "products": [
+            {
+                "quantity": product.get("quantity"),
+                "name": product.get("name"),
+                "totalAmount": product.get("total_amount"),
+                "code": product.get("code"),
+                "specifications": [
+                    {
+                        "name": specification.get("name"),
+                        "totalAmount": specification.get("total_amount"),
+                    }
+                    for specification in product.get("specifications")
+                ],
+            }
+            for product in order.get("products")
+        ],
+        "status": order.get("status"),
+    }
+
+
+def fetch_live_orders(access_token: str) -> Tuple[List[dict], int]:
     """
     Fetch active/live orders from Takeaway.com.
 
@@ -262,73 +336,35 @@ def fetch_live_orders(access_token: str) -> List[dict]:
         access_token: OAuth access token for Takeaway.com API
 
     Returns:
-        List of currently active orders with customer and product details
+        Tuple of (active orders list, HTTP-like status code)
 
     Raises:
         Exception: If API call fails after retries
     """
     orders: List[dict] = []
-    isFailed = True
+    is_failed = True
 
-    for i in range(10):
+    # Retry a few times because this endpoint can be flaky.
+    for i in range(MAX_LIVE_ORDER_RETRIES):
         try:
             scraper = cloudscraper.create_scraper()
             result = scraper.get(
-                "https://live-orders-api.takeaway.com/api/orders",
+                LIVE_ORDERS_URL,
                 headers={"Authorization": f"Bearer {access_token}"},
             )
-            isFailed = False
+            is_failed = False
         except Exception:
             print(f"failed {i} times")
 
-        if not isFailed:
-            for order in result.json():
-                order = {
-                    "placedDate": order.get("placed_date"),
-                    "requestedTime": order.get("requested_time"),
-                    "paymentType": order.get("payment_type"),
-                    "subtotal": order.get("subtotal"),
-                    "restaurantTotal": order.get("restaurant_total"),
-                    "customerTotal": order.get("customer_total"),
-                    "orderCode": order.get("public_reference"),
-                    "deliveryFree": order.get("delivery_fee"),
-                    "customer": {
-                        "fullName": order.get("customer").get("full_name"),
-                        "street": order.get("customer").get("street"),
-                        "streetNumber": order.get("customer").get("street_number"),
-                        "postcode": order.get("customer").get("postcode"),
-                        "city": order.get("customer").get("city"),
-                        "extra": (
-                            order.get("customer").get("extra")[0]
-                            if len(order.get("customer").get("extra")) > 0
-                            else ""
-                        ),
-                        "phoneNumber": order.get("customer").get("phone_number"),
-                    },
-                    "products": [
-                        {
-                            "quantity": product.get("quantity"),
-                            "name": product.get("name"),
-                            "totalAmount": product.get("total_amount"),
-                            "code": product.get("code"),
-                            "specifications": [
-                                {
-                                    "name": specification.get("name"),
-                                    "totalAmount": specification.get("total_amount"),
-                                }
-                                for specification in product.get("specifications")
-                            ],
-                        }
-                        for product in order.get("products")
-                    ],
-                    "status": order.get("status"),
-                }
-                orders.append(order)
+        if not is_failed:
+            # Convert API payload keys to our internal field names.
+            orders = [_map_live_order(order) for order in result.json()]
             break
 
+    # Most recent orders first.
     orders = sorted(orders, key=lambda order: order.get("placedDate"), reverse=True)
 
-    if isFailed:
+    if is_failed:
         warnings.warn("Takeaway API call failed after retries", RuntimeWarning)
         return [], 200
 
