@@ -160,9 +160,16 @@ def _normalize_historical_orders(
     )
     bills_df["paidOnline"] = bills_df["paidOnline"].astype(int)
     bills_df["paidOnline"] = bills_df["paidOnline"].map({0: "Cash", 1: "Online"})
-    bills_df = bills_df.rename(columns={"paidOnline": "Payment type"})
-    bills_df = bills_df[["createdAt", "orderCode", "postcode", "price", "Payment type"]]
-
+    bills_df = bills_df[["createdAt", "orderCode", "postcode", "price", "paidOnline"]]
+    bills_df = bills_df.rename(
+        columns={
+            "createdAt": "Datum",
+            "orderCode": "Bestellcode",
+            "postcode": "Postleitzahl",
+            "price": "Betrag",
+            "paidOnline": "Zahlungsart",
+        }
+    )
     return bills_df.sort_values(by=sort_column, ascending=(sort_direction == "asc"))
 
 

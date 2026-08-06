@@ -182,7 +182,7 @@ def orders_page():
     with col2:
         sort_column = st.selectbox(
             "Sort by",
-            ["createdAt", "orderCode", "postcode", "price"],
+            ["Datum", "Bestellcode", "Postleitzahl", "Betrag", "Zahlungsart"],
             key="sort_column",
         )
 
@@ -217,38 +217,40 @@ def orders_page():
             col1, col2, col3 = st.columns(3)
 
             total_orders = len(df)
-            total_revenue = df["price"].sum()
-            online_paid = len(df[df["Payment type"] == "Online"].index)
-            online_revenue = df[df["Payment type"] == "Online"]["price"].sum()
-            cash_paid = len(df[df["Payment type"] == "Cash"].index)
-            cash_revenue = df[df["Payment type"] == "Cash"]["price"].sum()
+            total_revenue = df["Betrag"].sum()
+            online_paid = len(df[df["Zahlungsart"] == "Online"].index)
+            online_revenue = df[df["Zahlungsart"] == "Online"]["Betrag"].sum()
+            cash_paid = len(df[df["Zahlungsart"] == "Cash"].index)
+            cash_revenue = df[df["Zahlungsart"] == "Cash"]["Betrag"].sum()
 
             with col1:
-                st.metric("Total Orders", total_orders)
-                st.metric("Total Revenue", f"€{total_revenue:.2f}")
+                st.metric("Gesamtbestellungen", total_orders)
+                st.metric("Gesamtumsatz", f"€{total_revenue:.2f}")
 
             with col2:
-                st.metric("Total Orders Paid Online", online_paid)
-                st.metric("Total Online Revenue", f"€{online_revenue:.2f}")
+                st.metric("Online bezahlte Bestellungen", online_paid)
+                st.metric("Online Umsatz", f"€{online_revenue:.2f}")
 
             with col3:
-                st.metric("Total Orders Paid Cash", cash_paid)
-                st.metric("Total Cash Revenue", f"€{cash_revenue:.2f}")
+                st.metric("Bar bezahlte Bestellungen", cash_paid)
+                st.metric("Bar Umsatz", f"€{cash_revenue:.2f}")
 
             # Display table
-            st.subheader("Order Details")
+            st.subheader("Bestelltabelle")
             st.dataframe(
                 df,
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "createdAt": st.column_config.DatetimeColumn("Created At"),
-                    "orderCode": "Order Code",
-                    "postcode": "Postcode",
-                    "price": st.column_config.NumberColumn("Price", format="€%.2f"),
-                    "paidOnline": st.column_config.SelectboxColumn(
-                        "Paid Online",
-                        options=["Cash", "Online"],
+                    "Datum": st.column_config.DatetimeColumn(
+                        "Datum", format="DD-MM-YYYY HH:mm"
+                    ),
+                    "Bestellcode": "Bestellcode",
+                    "Postleitzahl": "Postleitzahl",
+                    "Betrag": st.column_config.NumberColumn("Betrag", format="€%.2f"),
+                    "Zahlungsart": st.column_config.SelectboxColumn(
+                        "Zahlungsart",
+                        options=["Bar", "Online"],
                     ),
                 },
             )
