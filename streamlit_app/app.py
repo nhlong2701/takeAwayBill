@@ -167,13 +167,13 @@ def login_page():
 
 def historical_orders_page():
     """Display historical orders"""
-    st.header("📋 Historical Orders")
+    st.header("📋 Historische Aufträge")
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         selected_date = st.date_input(
-            "Select Date",
+            "Datum auswählen",
             value=datetime.now().date(),
             key="orders_date",
             format="DD-MM-YYYY",
@@ -181,21 +181,19 @@ def historical_orders_page():
 
     with col2:
         sort_column = st.selectbox(
-            "Sort by",
+            "Sortieren",
             ["Datum", "Bestellcode", "Postleitzahl", "Betrag", "Zahlungsart"],
             key="sort_column",
         )
 
     with col3:
-        sort_direction = st.selectbox(
-            "Direction", ["asc", "desc"], key="sort_direction"
-        )
+        sort_direction = st.selectbox("Richtung", ["asc", "desc"], key="sort_direction")
 
-    if st.button("Fetch Orders", key="fetch_orders"):
+    if st.button("Bestellungen abrufen", key="fetch_orders"):
         try:
             auth = AuthManager()
             token = auth.get_api_token()
-            with st.spinner("Fetching orders..."):
+            with st.spinner("Bestellungen abrufen..."):
                 orders = fetch_orders_by_date(
                     token,
                     selected_date.strftime("%Y-%m-%d"),
