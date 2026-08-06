@@ -22,6 +22,8 @@ try:
 except ImportError:
     stx = None
 
+_COOKIE_MANAGER = None
+
 # Import backend functions
 from streamlit_app.backend import (
     TAKEAWAY_REFRESH_TOKEN,
@@ -56,8 +58,17 @@ class AuthManager:
         self._cookie_manager = None
 
     def _get_cookie_manager(self):
-        if self._cookie_manager is None and stx is not None:
-            self._cookie_manager = stx.CookieManager()
+        global _COOKIE_MANAGER
+
+        if stx is None:
+            return None
+
+        # Keep one CookieManager instance per script run to avoid
+        # DuplicateWidgetID errors from multiple `key='init'` initializations.
+        if _COOKIE_MANAGER is None:
+            _COOKIE_MANAGER = stx.CookieManager()
+
+        self._cookie_manager = _COOKIE_MANAGER
         return self._cookie_manager
 
     def _sign_cookie_payload(self, payload: str) -> str:
